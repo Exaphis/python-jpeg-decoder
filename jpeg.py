@@ -63,7 +63,8 @@ def get_signed_value(bits: int, num_bits: int) -> int:
     return bits
 
 
-def get_next_huffman_value(data: bytearray, data_pos: int, huff_table: Dict[Tuple[int, int], int]) -> Tuple[int, int]:
+def get_next_huffman_value(data: bytearray, data_pos: int, huff_table: Dict[Tuple[int, int], int],
+                           debug_print=False) -> Tuple[int, int]:
     # DECODE
     encoded_bits = bit_from_bytearray(data, data_pos, "big")
     start_bit = data_pos
@@ -75,7 +76,7 @@ def get_next_huffman_value(data: bytearray, data_pos: int, huff_table: Dict[Tupl
 
     num_bits = curr_pos - start_bit
 
-    if debug:
+    if debug_print:
         print(f"encoded: {encoded_bits:0{num_bits}b}, length: {num_bits}")
     return huff_table[(encoded_bits, num_bits)], num_bits
 
@@ -132,7 +133,7 @@ for y in range(8):
         idct_row.append(uv_matrix)
     idct_lookup.append(idct_row)
 
-with open("test_images/w3c_home.jpg", "rb") as f:
+with open("test_images/progressive/cake.jpg", "rb") as f:
     block_id_bytes = f.read(2)
     while block_id_bytes:
         block_id = int.from_bytes(block_id_bytes, byteorder="big")
@@ -186,20 +187,32 @@ with open("test_images/w3c_home.jpg", "rb") as f:
 
             # Scan for next marker and remove all stuff bytes in scan data
             marker_pos = None
+            marker_pos_diff = 0
             for i in range(len(scan_data) - 2, 0, -1):
-                # Marker found if 0xFF exists without a stuff byte after
-                if scan_data[i:i+2] > b'\xFF\x00':
-                    marker_pos = i
-
                 # Remove stuff byte
-                elif scan_data[i:i+2] == b'\xFF\x00':
-                    scan_data.pop(i+1)
+                if scan_data[i:i + 2] == b'\xFF\x00':
+                    scan_data.pop(i + 1)
+                    marker_pos_diff += 1
+
+                # Marker found if 0xFF exists without a stuff byte after
+                elif scan_data[i:i + 2] > b'\xFF\x00':
+                    marker_pos = i
+                    marker_pos_diff = 0
 
             assert marker_pos is not None
 
             # Set scan data from start to next marker
-            scan_data = scan_data[:marker_pos+1]
+            scan_data = scan_data[:marker_pos - marker_pos_diff]
             f.seek(start_pos + marker_pos)
+
+            print("Scan data: (after bitstuff removed)")
+            print("  " + "".join(f"{b:02x} " +
+                                 ("\n  " if (idx + 1) % 36 == 0 else "") for idx, b in enumerate(scan_data[:720])))
+            if len(scan_data) > 720:
+                print("WARNING: Dump truncated.")
+            print()
+            # block_id_bytes = f.read(2)
+            # continue
 
             # Initialize array storing final RGB values
             image_rgb = [[(0, 0, 0) for _ in range(sof.samples_per_line)] for _ in range(sof.num_lines)]
@@ -232,12 +245,6 @@ with open("test_images/w3c_home.jpg", "rb") as f:
                                 break
                         assert frame_component is not None
 
-                        # print(f"Selected frame component ID=0x{frame_component.identifier:X}, \n"
-                        #       f"    Sampling factor=0x{frame_component.sampling_factor:X}, \n"
-                        #       f"    Vertical sampling factor=0x{frame_component.v_sampling_factor:X}, \n"
-                        #       f"    Horizontal sampling factor=0x{frame_component.h_sampling_factor:X}, \n"
-                        #       f"    Quantization table destination=0x{frame_component.quant_table_dest}\n")
-
                         quant_table = quant_tables[frame_component.quant_table_dest]
                         dc_huff_table = huff_tables[component.dc_table, 0]
                         ac_huff_table = huff_tables[component.ac_table, 1]
@@ -256,7 +263,7 @@ with open("test_images/w3c_home.jpg", "rb") as f:
                                         print("Chr")
 
                                 # Decode DC coefficient
-                                dc_code, length = get_next_huffman_value(scan_data, curr_bit, dc_huff_table)
+                                dc_code, length = get_next_huffman_value(scan_data, curr_bit, dc_huff_table, debug)
                                 curr_bit += length
 
                                 # RECEIVE
@@ -287,7 +294,7 @@ with open("test_images/w3c_home.jpg", "rb") as f:
                                     k += 1
 
                                     # rs (8 bits)-> rrrrssss
-                                    rs, length = get_next_huffman_value(scan_data, curr_bit, ac_huff_table)
+                                    rs, length = get_next_huffman_value(scan_data, curr_bit, ac_huff_table, debug)
                                     curr_bit += length
 
                                     rrrr = rs >> 4  # Skip
@@ -374,7 +381,7 @@ with open("test_images/w3c_home.jpg", "rb") as f:
         elif block_id == 0xFFDB:  # -------------------------------------- Define Quantization Table
             for table in jpeg_headers.define_quantization_table(f):
                 quant_tables[table.dest_id] = table.table
-        elif block_id == 0xFFC0 or block_id == 0xFFC1:  # ---------------- Start of Frame (sequential, huffman)
+        elif block_id == 0xFFC0 or block_id == 0xFFC1:  # ---------------- Start of Frame
             sof = jpeg_headers.read_start_of_frame(f)
         else:  # All other segments have length specified at the start, skip for now
             size = int.from_bytes(f.read(2), byteorder="big")
