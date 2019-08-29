@@ -8,6 +8,8 @@ import tkinter
 #   https://www.w3.org/Graphics/JPEG/itu-t81.pdf
 #   https://impulseadventure.com
 
+IMAGE_TO_OPEN = "test_images/lena.jpg"
+
 start_time = time()
 
 
@@ -133,7 +135,7 @@ for y in range(8):
         idct_row.append(uv_matrix)
     idct_lookup.append(idct_row)
 
-with open("test_images/progressive/cake.jpg", "rb") as f:
+with open(IMAGE_TO_OPEN, "rb") as f:
     block_id_bytes = f.read(2)
     while block_id_bytes:
         block_id = int.from_bytes(block_id_bytes, byteorder="big")
