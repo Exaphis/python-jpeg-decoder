@@ -190,16 +190,26 @@ with open(IMAGE_TO_OPEN, "rb") as f:
             # Scan for next marker and remove all stuff bytes in scan data
             marker_pos = None
             marker_pos_diff = 0
-            for i in range(len(scan_data) - 2, 0, -1):
+
+            for i in range(len(scan_data) - 2, 0, -1):  # scan backwards
+                marker_code = scan_data[i:i + 2]
+
                 # Remove stuff byte
-                if scan_data[i:i + 2] == b'\xFF\x00':
+                if marker_code == b'\xFF\x00':
                     scan_data.pop(i + 1)
                     marker_pos_diff += 1
 
                 # Marker found if 0xFF exists without a stuff byte after
-                elif scan_data[i:i + 2] > b'\xFF\x00':
-                    marker_pos = i
-                    marker_pos_diff = 0
+                elif marker_code > b'\xFF\x00':
+                    if b'\xFF\xD0' <= marker_code <= b'\xFF\xD7':
+                        # TODO: RSTm (restart marker) found
+                        # remove the 0xFF and continue
+                        print('restart marker found, skipping...')
+                        scan_data.pop(i)
+                        marker_pos_diff += 1
+                    else:
+                        marker_pos = i
+                        marker_pos_diff = 0
 
             assert marker_pos is not None
 
@@ -322,7 +332,7 @@ with open(IMAGE_TO_OPEN, "rb") as f:
                                     v = get_signed_value(additional_bits, ssss)
 
                                     if debug:
-                                        start_byte = (curr_bit - ssss - length) / 8
+                                        start_byte = (curr_bit - ssss - length) // 8
                                         print(f"val: {v}, coeff: {k-rrrr:02d}..{k:02d}, skip: {rrrr}")
                                         print(f"val_bits: {additional_bits:0{ssss}b}")
                                         print(f"data: 0x "
